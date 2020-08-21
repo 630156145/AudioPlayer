@@ -6,13 +6,9 @@ aux_source_directory(. SRC_LIST)
 add_executable (audioPlayer ${SRC_LIST})
 target_link_libraries(audioPlayer
 	avcodec
-	avdevice
-	avfilter
 	avformat
 	avutil
-	postproc
 	swresample
-	swscale
 	EFX-Util
 	OpenAL32
 )

@@ -14,6 +14,7 @@ extern "C" {
 #define MAX_AUDIO_FARME_SIZE 48000 * 2
 #define NUMBUFFERS (4)
 
+
 typedef struct _tFrame {
     void* data;
     int size;
@@ -21,8 +22,7 @@ typedef struct _tFrame {
 }TFRAME, * PTFRAME;
 
 
-
-std::queue<PTFRAME> queueData;
+std::queue<PTFRAME> queueData; //保存解码后数据
 ALuint m_source;
 
 
@@ -65,13 +65,11 @@ int Play() {
     if (state == AL_STOPPED || state == AL_INITIAL) {
         alSourcePlay(m_source);
     }
-
     return 0;
 }
 
 
 int main(int argc, char* argv[]) {
-
     char* filepath;
     if (argc==2) {
         filepath = argv[1];
@@ -81,8 +79,7 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    playVideo(filepath);
-
+    //char filepath[] = "test.mp4";
 
     AVFormatContext* pFormatCtx; //解封装
     AVCodecContext* pCodecCtx; //解码
@@ -98,9 +95,6 @@ int main(int argc, char* argv[]) {
     avformat_network_init();
     avcodec_register_all();
     pFormatCtx = avformat_alloc_context();
-
-    char filepath[] = "F:/bupt/网研保研/audioPlayer/Debug/test.mp4";
-    //char outputpath[] = "output.pcm";
 
     //打开视频文件，初始化pFormatCtx
     if (avformat_open_input(&pFormatCtx, filepath, NULL, NULL) != 0) {
@@ -161,6 +155,7 @@ int main(int argc, char* argv[]) {
 
     out_buffer = (uint8_t*)av_malloc(MAX_AUDIO_FARME_SIZE);
     int ret;
+    printf("Decode...\n");
     while (av_read_frame(pFormatCtx, packet) >= 0) {
         if (packet->stream_index == index) {
             ret = avcodec_send_packet(pCodecCtx, packet);
@@ -171,9 +166,9 @@ int main(int argc, char* argv[]) {
             while (ret >= 0) {
                 ret = avcodec_receive_frame(pCodecCtx, pFrame); 
                 if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-                    char* errbuf = (char*)av_malloc(100);
-                    size_t bug_size = 100;
-                    av_strerror(AVERROR(EAGAIN), errbuf, bug_size);
+                    //char* errbuf = (char*)av_malloc(100);
+                    //size_t bug_size = 100;
+                    //av_strerror(AVERROR(EAGAIN), errbuf, bug_size);
                     //printf("%s\n", errbuf);
                     //printf("avcodec_receive_frame 1：%d\n", ret);
                     break;
@@ -183,20 +178,17 @@ int main(int argc, char* argv[]) {
                     return -1;
                 }
 
-                if (ret >= 0) {   //AVFrame->Audio 参数要仔细填对
+                if (ret >= 0) {   //AVFrame->Audio 
                     out_buffer = (uint8_t*)av_malloc(MAX_AUDIO_FARME_SIZE);
                     //重采样
                     swr_convert(swrCtx, &out_buffer, MAX_AUDIO_FARME_SIZE, (const uint8_t**)pFrame->data, pFrame->nb_samples);
                     //获取有多少有效的数据在out_buffer的内存上
-                    out_buffer_size = av_samples_get_buffer_size(NULL, out_channel_nb,
-                        pFrame->nb_samples, out_sample_fmt, 1);
-                    //写入pcm文件
-                    //fwrite(out_buffer, 1, (size_t)out_buffer_size, fpOutput);
+                    out_buffer_size = av_samples_get_buffer_size(NULL, out_channel_nb, pFrame->nb_samples, out_sample_fmt, 1);
                     PTFRAME frame = new TFRAME;
                     frame->data = out_buffer;
                     frame->size = out_buffer_size;
                     frame->samplerate = out_sample_rate;
-                    queueData.push(frame);
+                    queueData.push(frame);  //解码后数据存入队列
                 }
             }
         }
