@@ -1,6 +1,6 @@
 # Audio Player
 
-播放mp3、mp4等格式的中的音频
+播放mp3、mp4等格式中的音频
 
 ## Usage
 
