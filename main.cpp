@@ -20,20 +20,76 @@ typedef struct _tFrame {
     int samplerate;
 }TFRAME, * PTFRAME;
 
-int initAL();
-int SoundCallback(ALuint& bufferID);
-int Play();
+
 
 std::queue<PTFRAME> queueData;
 ALuint m_source;
 
-int main() {
+
+int initAL() {
+    ALCdevice* pDevice;
+    ALCcontext* pContext;
+
+    pDevice = alcOpenDevice(NULL);
+    pContext = alcCreateContext(pDevice, NULL);
+    alcMakeContextCurrent(pContext);
+
+    if (alcGetError(pDevice) != ALC_NO_ERROR)
+        return AL_FALSE;
+
+    return 0;
+}
+
+
+int SoundCallback(ALuint& bufferID) {
+    if (queueData.empty()) return -1;
+    PTFRAME frame = queueData.front();
+    queueData.pop();
+    if (frame == nullptr)
+        return -1;
+    //把数据写入buffer
+    alBufferData(bufferID, AL_FORMAT_STEREO16, frame->data, frame->size, frame->samplerate);
+    //将buffer放回缓冲区
+    alSourceQueueBuffers(m_source, 1, &bufferID);
+    //释放数据
+    if (frame) {
+        av_free(frame->data);
+        delete frame;
+    }
+    return 0;
+}
+
+int Play() {
+    int state;
+    alGetSourcei(m_source, AL_SOURCE_STATE, &state);
+    if (state == AL_STOPPED || state == AL_INITIAL) {
+        alSourcePlay(m_source);
+    }
+
+    return 0;
+}
+
+
+int main(int argc, char* argv[]) {
+
+    char* filepath;
+    if (argc==2) {
+        filepath = argv[1];
+    }
+    else {
+        printf("Usage: audioPlayer <filepath>");
+        return -1;
+    }
+
+    playVideo(filepath);
+
+
     AVFormatContext* pFormatCtx; //解封装
     AVCodecContext* pCodecCtx; //解码
     AVCodec* pCodec;
     AVFrame* pFrame, * pFrameYUV; //帧数据
     AVPacket* packet;	//解码前的压缩数据（包数据）
-    int index;
+    int index; //编码器索引位置
     uint8_t* out_buffer;	//数据缓冲区
     int out_buffer_size;    //缓冲区大小
     SwrContext* swrCtx;
@@ -43,7 +99,7 @@ int main() {
     avcodec_register_all();
     pFormatCtx = avformat_alloc_context();
 
-    char filepath[] = "F:/bupt/网研保研/audioPlayer/Debug/test.mp3";
+    char filepath[] = "F:/bupt/网研保研/audioPlayer/Debug/test.mp4";
     //char outputpath[] = "output.pcm";
 
     //打开视频文件，初始化pFormatCtx
@@ -85,38 +141,26 @@ int main() {
     //内存分配
     packet = (AVPacket*)av_malloc(sizeof(AVPacket));
     pFrame = av_frame_alloc();
-
     swrCtx = swr_alloc();
 
-    //设置采样参数 frame->16bit双声道 采样率44100 PCM采样格式
-    //输入的采样格式
-    enum AVSampleFormat in_sample_fmt = pCodecCtx->sample_fmt;
-    //输出采样格式16bit PCM
-    enum AVSampleFormat out_sample_fmt = AV_SAMPLE_FMT_S16;
-    //输入采样率
-    int in_sample_rate = pCodecCtx->sample_rate;
-    //输出采样率
-    int out_sample_rate = in_sample_rate;
-    //输入的声道布局
-    uint64_t in_ch_layout = pCodecCtx->channel_layout;
-    //输出的声道布局（立体声）
-    uint64_t out_ch_layout = AV_CH_LAYOUT_STEREO;
-
+    //设置采样参数 frame->16bit双声道 采样率44100 PCM采样格式   
+    enum AVSampleFormat in_sample_fmt = pCodecCtx->sample_fmt;  //输入的采样格式  
+    enum AVSampleFormat out_sample_fmt = AV_SAMPLE_FMT_S16; //输出采样格式16bit PCM  
+    int in_sample_rate = pCodecCtx->sample_rate; //输入采样率
+    int out_sample_rate = in_sample_rate; //输出采样率  
+    uint64_t in_ch_layout = pCodecCtx->channel_layout; //输入的声道布局   
+    uint64_t out_ch_layout = AV_CH_LAYOUT_STEREO; //输出的声道布局（立体声）
     swr_alloc_set_opts(swrCtx,
         out_ch_layout, out_sample_fmt, out_sample_rate,
         in_ch_layout, in_sample_fmt, in_sample_rate,
-        0, NULL);
-    swr_init(swrCtx);
-
-
-    //16bit 44100 PCM 数据 内存空间。
+        0, NULL); //设置参数
+    swr_init(swrCtx); //初始化
 
     //根据声道布局获取输出的声道个数
     int out_channel_nb = av_get_channel_layout_nb_channels(out_ch_layout);
 
-    //FILE* fpOutput = fopen(outputpath, "wb");
+    out_buffer = (uint8_t*)av_malloc(MAX_AUDIO_FARME_SIZE);
     int ret;
-    //int count = 0;
     while (av_read_frame(pFormatCtx, packet) >= 0) {
         if (packet->stream_index == index) {
             ret = avcodec_send_packet(pCodecCtx, packet);
@@ -130,7 +174,7 @@ int main() {
                     char* errbuf = (char*)av_malloc(100);
                     size_t bug_size = 100;
                     av_strerror(AVERROR(EAGAIN), errbuf, bug_size);
-                    printf("%s\n", errbuf);
+                    //printf("%s\n", errbuf);
                     //printf("avcodec_receive_frame 1：%d\n", ret);
                     break;
                 }
@@ -141,6 +185,7 @@ int main() {
 
                 if (ret >= 0) {   //AVFrame->Audio 参数要仔细填对
                     out_buffer = (uint8_t*)av_malloc(MAX_AUDIO_FARME_SIZE);
+                    //重采样
                     swr_convert(swrCtx, &out_buffer, MAX_AUDIO_FARME_SIZE, (const uint8_t**)pFrame->data, pFrame->nb_samples);
                     //获取有多少有效的数据在out_buffer的内存上
                     out_buffer_size = av_samples_get_buffer_size(NULL, out_channel_nb,
@@ -160,7 +205,7 @@ int main() {
 
     printf("Decoding ended.\n");
 
-    initAL();
+    initAL();   //初始化OpenAL
 
     ALuint m_buffers[NUMBUFFERS];
     alGenSources(1, &m_source); 
@@ -207,12 +252,14 @@ int main() {
     }
 
     alSourceStop(m_source);
+    alSourcei(m_source, AL_BUFFER, 0);
+    alDeleteBuffers(NUMBUFFERS, m_buffers);
+    alDeleteSources(1, &m_source);
 
     printf("End.\n");
 
-    //fclose(fpOutput);
     av_frame_free(&pFrame);
-    av_free(out_buffer);
+    //av_free(out_buffer);
     swr_free(&swrCtx);
 
 
@@ -229,43 +276,3 @@ int main() {
     return 0;
 }
 
-int initAL() {
-    ALCdevice* pDevice;
-    ALCcontext* pContext;
-
-    pDevice = alcOpenDevice(NULL);
-    pContext = alcCreateContext(pDevice, NULL);
-    alcMakeContextCurrent(pContext);
-
-    if (alcGetError(pDevice) != ALC_NO_ERROR)
-        return AL_FALSE;
-
-    return 0;
-}
-
-int SoundCallback(ALuint& bufferID) {
-    PTFRAME frame = queueData.front();
-    queueData.pop();
-    if (frame == nullptr)
-        return -1;
-    //把数据写入buffer
-    alBufferData(bufferID, AL_FORMAT_STEREO16, frame->data, frame->size, frame->samplerate);
-    //将buffer放回缓冲区
-    alSourceQueueBuffers(m_source, 1, &bufferID);
-    //释放数据
-    if (frame) {
-        av_free(frame->data);
-        delete frame;
-    }
-    return 0;
-}
-
-int Play() {
-    int state;
-    alGetSourcei(m_source, AL_SOURCE_STATE, &state);
-    if (state == AL_STOPPED || state == AL_INITIAL) {
-        alSourcePlay(m_source);
-    }
-
-    return 0;
-}
